@@ -16,18 +16,24 @@ The root file preserves the existing repository checks. The AgentBricks subtree
 adds its own criteria and automation-eligibility note without changing workflow
 triggers, approval behavior, or merge permissions.
 
-Reviews now report two independent assessments: the existing merge-safety score
+Reviews now report two independent assessments: a review score
 for findings and reviewer coverage, and change safety for the impact of the
 change itself. Change safety is a 0–100 rubric, not a probability. Higher is
 safer to automate: 90–100 is low, 60–89 medium, and 0–59 high risk. Missing or
 invalid assessments withhold approval and receive high risk.
 
+For example, `Review score: 100/100 · reviewers: 2/2` can appear alongside
+`Change safety: 80/100 (MEDIUM RISK)` for a clean review of a consequential
+change. Only change safety carries a risk band; the review score does not.
+
 The reviewer considers actual behavior, affected users/packages, public API
 compatibility, credentials/data writes, tests, and rollback. CI adds minimum
 risk levels: protected CI/review/dependency/credential paths, migration/release
 behavior, and binaries are high; public CLI/API/runtime/persistence paths and
-multiple production packages are at least medium. More than 200 changed lines
-or 10 paths is at least medium; more than 1000 lines or 30 paths is high. CI
+multiple production packages are at least medium. More than 10 paths is at
+least medium; more than 1000 lines or 30 paths is high. The configurable
+`AI_REVIEW_AUTO_APPROVE_MAX_LINES` separately limits approval eligibility without
+changing the risk classification. CI
 caps the safety score at 89 or 59 when a minimum risk level applies and shows
 the reasons in the review comment. Root and scoped REVIEW.md changes remain
 protected; this does not add AGENTS.md or CLAUDE.md to the protected filenames.

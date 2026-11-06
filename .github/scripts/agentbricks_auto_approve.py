@@ -15,8 +15,8 @@ import re
 import sys
 from pathlib import Path, PurePosixPath
 
-MERGE_SAFETY = re.compile(
-    r"\*\*Merge safety:\*\*\s*(?P<score>\d+)/100\s*\((?P<risk>[A-Z ]+)\)"
+REVIEW_SCORE = re.compile(
+    r"\*\*Review score:\*\*\s*(?P<score>\d+)/100"
     r"\s*·\s*reviewers:\s*(?P<delivered>\d+)/(?P<dispatched>\d+)"
 )
 EMPTY_SECTIONS = ("Blocking issues", "Security vulnerabilities", "Uncertain findings")
@@ -136,8 +136,8 @@ def assess_change_risk(review: str, files: list[str], lines: int, diff: str = ""
         floor("medium", "production changes span multiple packages: " + ", ".join(sorted(components)))
     if lines > 1000 or len(files) > 30:
         floor("high", "the change exceeds 1000 lines or 30 paths")
-    elif lines > 200 or len(files) > 10:
-        floor("medium", "the change exceeds 200 lines or 10 paths")
+    elif len(files) > 10:
+        floor("medium", "the change exceeds 10 paths")
     if "GIT binary patch" in diff or re.search(r"^Binary files .+ differ$", diff, re.MULTILINE):
         floor("high", "binary changes need human review")
     if score is not None:
@@ -152,14 +152,14 @@ def decide(review: str, diff: str, min_score: int = 95, max_lines: int = 200,
            paths: list[str] | None = None) -> dict:
     reasons: list[str] = []
 
-    summary = MERGE_SAFETY.search(review)
+    summary = REVIEW_SCORE.search(review)
     if not summary:
-        reasons.append("the review has no merge safety line")
+        reasons.append("the review has no review score line")
     else:
         score = int(summary.group("score"))
         delivered, dispatched = int(summary.group("delivered")), int(summary.group("dispatched"))
         if score < min_score:
-            reasons.append(f"merge safety {score}/100 is below {min_score}")
+            reasons.append(f"review score {score}/100 is below {min_score}")
         if delivered < 2 or delivered != dispatched:
             reasons.append(f"only {delivered} of {dispatched} reviewers delivered (need all, and at least 2)")
 

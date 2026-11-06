@@ -21,7 +21,7 @@ def review(
     change_safety=100,
     change_risk="LOW",
 ):
-    return f"""**Merge safety:** {score}/100 (LOW RISK) · reviewers: {reviewers} · findings by lens: none
+    return f"""**Review score:** {score}/100 · reviewers: {reviewers} · findings by lens: none
 
 **Change safety:** {change_safety}/100 ({change_risk} RISK)
 **Risk rationale:** Small compatible change with focused tests and straightforward rollback.
@@ -85,6 +85,15 @@ class DecideTest(unittest.TestCase):
     def test_low_score_is_refused(self):
         self.assert_refused(gate.decide(review(score=94), diff("README.md")), "below 95")
 
+    def test_review_score_is_separate_from_risk_wording(self):
+        for old_line in (
+            "**Merge safety:** 100/100 (LOW RISK)",
+            "**Review score:** 100/100 (LOW RISK)",
+        ):
+            with self.subTest(old_line=old_line):
+                text = review().replace("**Review score:** 100/100", old_line)
+                self.assert_refused(gate.decide(text, diff("README.md")), "no review score line")
+
     def test_missing_reviewer_is_refused(self):
         self.assert_refused(gate.decide(review(reviewers="1/2"), diff("README.md")), "1 of 2")
 
@@ -104,7 +113,7 @@ class DecideTest(unittest.TestCase):
     def test_missing_section_or_summary_line_is_refused(self):
         text = review().replace("## Security vulnerabilities\n\nNone.\n", "")
         self.assert_refused(gate.decide(text, diff(CODE)), 'no "Security vulnerabilities" section')
-        self.assert_refused(gate.decide("## Blocking issues\n\nNone.\n", diff(CODE)), "no merge safety line")
+        self.assert_refused(gate.decide("## Blocking issues\n\nNone.\n", diff(CODE)), "no review score line")
 
     def test_large_diff_is_refused(self):
         self.assert_refused(gate.decide(review(), diff(CODE, added=201)), "over the 200-line limit")
@@ -231,13 +240,23 @@ class ChangeRiskTest(unittest.TestCase):
 
     def test_size_and_binary_changes_raise_risk(self):
         for content, expected in (
-            (diff(CODE, added=201), "medium"), (diff(CODE, added=1001), "high"),
+            (diff(CODE, added=1001), "high"),
             (diff(*[f"docs/{i}.md" for i in range(11)]), "medium"),
             (diff(*[f"docs/{i}.md" for i in range(31)]), "high"),
             (diff(CODE) + "Binary files a/image.png and b/image.png differ\n", "high"),
         ):
             with self.subTest(expected=expected):
                 self.assertEqual(gate.decide(review(), content)["risk"]["level"], expected)
+
+    def test_line_limit_controls_approval_without_changing_risk(self):
+        content = diff(CODE, added=201)
+        limited = gate.decide(review(), content)
+        self.assertEqual(limited["risk"]["level"], "low")
+        self.assertFalse(limited["approve"])
+        self.assertIn("201 changed lines is over the 200-line limit", limited["reasons"])
+        relaxed = gate.decide(review(), content, max_lines=300)
+        self.assertTrue(relaxed["approve"], relaxed)
+        self.assertEqual(relaxed["risk"], limited["risk"])
 
     def test_canonical_changed_paths_drive_scope_and_risk(self):
         paths = ["integrations/agentbricks/src/cli/new command.py"]
