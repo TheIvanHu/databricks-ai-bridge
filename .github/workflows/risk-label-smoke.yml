@@ -1,0 +1,71 @@
+name: Change risk label smoke test
+on:
+  push:
+    branches: [ivan-hu/risk-label-live-validation]
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      REPO: TheIvanHu/databricks-ai-bridge
+      PR_NUMBER: "7"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Run risk and existing regression tests
+        run: |
+          python -m unittest discover .github/scripts/tests -v
+          python .github/agentbricks-reviewer/test_prompt.py -v
+      - name: Exercise actual risk-label and stale-clear workflow steps
+        run: |
+          python - <<'PY'
+          import importlib.util, json, os, subprocess, textwrap
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('fixtures', '.github/scripts/tests/test_agentbricks_auto_approve.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          workflow = Path('.github/workflows/agentbricks-reviewer.yml').read_text()
+          def script(start, end):
+              text = workflow.split('      - name: ' + start + '\n', 1)[1]
+              text = text.split('      - name: ' + end + '\n', 1)[0]
+              return textwrap.dedent(text.split('        run: |\n', 1)[1]).rstrip()
+          def api(endpoint):
+              return json.loads(subprocess.check_output(['gh', 'api', endpoint], text=True))
+          repo, number = os.environ['REPO'], os.environ['PR_NUMBER']
+          head = api(f'repos/{repo}/pulls/{number}')['head']['sha']
+          env = dict(os.environ, HEAD_SHA=head)
+          label_script = script('Label reviewed change risk', 'Auto-approve if low risk')
+          clear_script = script('Clear risk labels for unreviewed commits', 'Dismiss approvals of earlier commits')
+          cases = [
+              ('README.md', 'low'),
+              ('integrations/agentbricks/src/cli/app.py', 'medium'),
+              ('REVIEW.md', 'high'),
+          ]
+          for path, expected in cases:
+              decision = module.gate.decide(module.review(), module.diff(path))
+              assert decision['risk']['level'] == expected, decision
+              assert decision['approve'] == (expected == 'low'), decision
+              Path('/tmp/pr_review_decision.json').write_text(json.dumps(decision))
+              subprocess.run(['bash', '-c', label_script], check=True, env=env)
+              labels = {label['name'] for label in api(f'repos/{repo}/issues/{number}/labels') if label['name'].startswith('risk:')}
+              assert labels == {f'risk:{expected}'}, labels
+              print(f'PASS: {expected} assessment applies exactly risk:{expected}; approve={decision["approve"]}')
+          subprocess.run(['bash', '-c', clear_script], check=True, env=env)
+          labels = [label['name'] for label in api(f'repos/{repo}/issues/{number}/labels') if label['name'].startswith('risk:')]
+          assert not labels, labels
+          print('PASS: unreviewed-head step clears stale risk labels')
+          PY
+      - name: Record scope
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
+          Passed regression tests and live low → medium → high label replacement on fork PR #7, then stale-label clearing. Assessments were synthetic fixtures; no model was called and no PR was approved or merged.
+          SUMMARY
