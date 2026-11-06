@@ -50,16 +50,43 @@ jobs:
               ('integrations/agentbricks/src/cli/app.py', 'medium'),
               ('REVIEW.md', 'high'),
           ]
-          for path, expected in cases:
-              decision = module.gate.decide(module.review(), module.diff(path))
-              assert decision['risk']['level'] == expected, decision
-              assert decision['approve'] == (expected == 'low'), decision
-              Path('/tmp/pr_review_decision.json').write_text(json.dumps(decision))
-              subprocess.run(['bash', '-c', label_script], check=True, env=env)
-              labels = {label['name'] for label in api(f'repos/{repo}/issues/{number}/labels') if label['name'].startswith('risk:')}
-              assert labels == {f'risk:{expected}'}, labels
-              print(f'PASS: {expected} assessment applies exactly risk:{expected}; approve={decision["approve"]}')
-          subprocess.run(['bash', '-c', clear_script], check=True, env=env)
+          comments = []
+          try:
+              for path, expected in cases:
+                  review_path, diff_path = Path('/tmp/smoke-review.txt'), Path('/tmp/smoke-diff.txt')
+                  review_path.write_text(module.review())
+                  diff_path.write_text(module.diff(path))
+                  decision = json.loads(subprocess.check_output([
+                      'python', '.github/scripts/agentbricks_auto_approve.py',
+                      '--review', str(review_path), '--diff', str(diff_path),
+                      '--safety-section', '/tmp/smoke-safety.md',
+                  ], text=True))
+                  assert decision['risk']['level'] == expected, decision
+                  assert decision['approve'] == (expected == 'low'), decision
+                  section = Path('/tmp/smoke-safety.md').read_text()
+                  assert '### Safety assessment' in section and 'Review score' in section, section
+                  assert f'`risk:{expected}`' in section, section
+                  body = (
+                      'TEST ONLY: synthetic safety assessment for isolated label validation.\n'
+                      f'<!-- agentbricks-reviewer-risk-sha: {head} -->\n'
+                      f'<!-- agentbricks-reviewer-risk-label: risk:{expected} -->\n'
+                      + section
+                  )
+                  response = subprocess.check_output([
+                      'gh', 'api', f'repos/{repo}/issues/{number}/comments',
+                      '--input', '-',
+                  ], input=json.dumps({'body': body}), text=True)
+                  comment = json.loads(response)
+                  comments.append(comment['id'])
+                  assert comment['user']['login'] == 'github-actions[bot]', comment
+                  subprocess.run(['bash', '-c', label_script], check=True, env=env)
+                  labels = {label['name'] for label in api(f'repos/{repo}/issues/{number}/labels') if label['name'].startswith('risk:')}
+                  assert labels == {f'risk:{expected}'}, labels
+                  print(f'PASS: {expected} assessment applies exactly risk:{expected}; approve={decision["approve"]}')
+          finally:
+              for identifier in comments:
+                  subprocess.run(['gh', 'api', '--method', 'DELETE', f'repos/{repo}/issues/comments/{identifier}'], check=True)
+              subprocess.run(['bash', '-c', clear_script], check=True, env=env)
           labels = [label['name'] for label in api(f'repos/{repo}/issues/{number}/labels') if label['name'].startswith('risk:')]
           assert not labels, labels
           print('PASS: unreviewed-head step clears stale risk labels')
