@@ -46,15 +46,17 @@ jobs:
           label_script = script('Label reviewed change risk', 'Auto-approve if low risk')
           clear_script = script('Clear risk labels for unreviewed commits', 'Dismiss approvals of earlier commits')
           cases = [
-              ('README.md', 'low'),
-              ('integrations/agentbricks/src/cli/app.py', 'medium'),
-              ('REVIEW.md', 'high'),
+              ('README.md', 'low', module.review()),
+              ('integrations/agentbricks/src/cli/app.py', 'medium', module.review()),
+              ('REVIEW.md', 'high', module.review()),
+              ('README.md', 'critical', module.review(change_safety=39, change_risk='CRITICAL')),
+              ('README.md', 'unrated', module.review().replace('**Change safety:** 100/100 (LOW RISK)', '**Change safety:** Unrated')),
           ]
           comments = []
           try:
-              for path, expected in cases:
+              for path, expected, assessment in cases:
                   review_path, diff_path = Path('/tmp/smoke-review.txt'), Path('/tmp/smoke-diff.txt')
-                  review_path.write_text(module.review())
+                  review_path.write_text(assessment)
                   diff_path.write_text(module.diff(path))
                   decision = json.loads(subprocess.check_output([
                       'python', '.github/scripts/agentbricks_auto_approve.py',
@@ -94,5 +96,5 @@ jobs:
       - name: Record scope
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
-          Passed regression tests and live low → medium → high label replacement on fork PR #7, then stale-label clearing. Assessments were synthetic fixtures; no model was called and no PR was approved or merged.
+          Passed regression tests and live low → moderate → high → critical → unrated label replacement on fork PR #7, then stale-label clearing. Assessments were synthetic fixtures; no model was called and no PR was approved or merged.
           SUMMARY
