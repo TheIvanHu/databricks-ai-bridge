@@ -49,8 +49,9 @@ jobs:
               ('README.md', 'low', module.review()),
               ('integrations/agentbricks/src/cli/app.py', 'medium', module.review()),
               ('REVIEW.md', 'high', module.review()),
-              ('README.md', 'critical', module.review(change_safety=39, change_risk='CRITICAL')),
-              ('README.md', 'unrated', module.review().replace('**Change safety:** 100/100 (LOW RISK)', '**Change safety:** Unrated')),
+              ('README.md', 'medium', module.review(change_risk='MODERATE')),
+              ('README.md', 'high', module.review(change_risk='HIGH')),
+              ('README.md', 'unrated', module.review(change_risk='Unrated')),
           ]
           comments = []
           try:
@@ -68,6 +69,7 @@ jobs:
                   section = Path('/tmp/smoke-safety.md').read_text()
                   assert '### Safety assessment' in section and 'Review score' in section, section
                   assert f'`risk:{expected}`' in section, section
+                  assert section.count('/100') == 1 and 'Change safety' not in section, section
                   body = (
                       'TEST ONLY: synthetic safety assessment for isolated label validation.\n'
                       f'<!-- agentbricks-reviewer-risk-sha: {head} -->\n'
@@ -96,5 +98,5 @@ jobs:
       - name: Record scope
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
-          Passed regression tests and live low → moderate → high → critical → unrated label replacement on fork PR #7, then stale-label clearing. Assessments were synthetic fixtures; no model was called and no PR was approved or merged.
+          Passed regression tests and live low / moderate / high / unrated label replacement on fork PR #7, then stale-label clearing. Assessments were synthetic fixtures; no model was called and no PR was approved or merged.
           SUMMARY
