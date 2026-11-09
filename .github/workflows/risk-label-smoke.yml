@@ -52,6 +52,9 @@ jobs:
               ('README.md', 'medium', module.review(change_risk='MODERATE')),
               ('README.md', 'high', module.review(change_risk='HIGH')),
               ('README.md', 'unrated', module.review(change_risk='Unrated')),
+              ('README.md', 'low', module.review(score=90)),
+              ('README.md', 'low', module.review(blocking='A verified bug.')),
+              ('README.md', 'low', module.review(reviewers='1/2')),
           ]
           comments = []
           try:
@@ -65,7 +68,7 @@ jobs:
                       '--safety-section', '/tmp/smoke-safety.md',
                   ], text=True))
                   assert decision['risk']['level'] == expected, decision
-                  assert decision['approve'] == (expected == 'low'), decision
+                  assert decision['approve'] == (expected == 'low' and decision['review_passed']), decision
                   section = Path('/tmp/smoke-safety.md').read_text()
                   assert '### Safety assessment' in section and 'Review score' in section, section
                   assert f'`risk:{expected}`' in section, section
@@ -74,6 +77,7 @@ jobs:
                       'TEST ONLY: synthetic safety assessment for isolated label validation.\n'
                       f'<!-- agentbricks-reviewer-risk-sha: {head} -->\n'
                       f'<!-- agentbricks-reviewer-risk-label: risk:{expected} -->\n'
+                      f'<!-- agentbricks-reviewer-ai-approved: {str(decision["review_passed"]).lower()} -->\n'
                       + section
                   )
                   response = subprocess.check_output([
@@ -84,19 +88,20 @@ jobs:
                   comments.append(comment['id'])
                   assert comment['user']['login'] == 'github-actions[bot]', comment
                   subprocess.run(['bash', '-c', label_script], check=True, env=env)
-                  labels = {label['name'] for label in api(f'repos/{repo}/issues/{number}/labels') if label['name'].startswith('risk:')}
-                  assert labels == {f'risk:{expected}'}, labels
-                  print(f'PASS: {expected} assessment applies exactly risk:{expected}; approve={decision["approve"]}')
+                  labels = {label['name'] for label in api(f'repos/{repo}/issues/{number}/labels') if label['name'].startswith('risk:') or label['name'] == 'ai-approved'}
+                  wanted = {f'risk:{expected}'} | ({'ai-approved'} if decision['review_passed'] else set())
+                  assert labels == wanted, (labels, wanted)
+                  print(f'PASS: {expected} labels={sorted(labels)}; review_passed={decision["review_passed"]}; approve={decision["approve"]}')
           finally:
               for identifier in comments:
                   subprocess.run(['gh', 'api', '--method', 'DELETE', f'repos/{repo}/issues/comments/{identifier}'], check=True)
               subprocess.run(['bash', '-c', clear_script], check=True, env=env)
-          labels = [label['name'] for label in api(f'repos/{repo}/issues/{number}/labels') if label['name'].startswith('risk:')]
+          labels = [label['name'] for label in api(f'repos/{repo}/issues/{number}/labels') if label['name'].startswith('risk:') or label['name'] == 'ai-approved']
           assert not labels, labels
           print('PASS: unreviewed-head step clears stale risk labels')
           PY
       - name: Record scope
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
-          Passed regression tests and live low / moderate / high / unrated label replacement on fork PR #7, then stale-label clearing. Assessments were synthetic fixtures; no model was called and no PR was approved or merged.
+          Passed regression tests and live low / moderate / high / unrated risk and ai-approved label replacement on fork PR #7, then stale-label clearing. Assessments were synthetic fixtures; no model was called and no PR was approved or merged.
           SUMMARY
