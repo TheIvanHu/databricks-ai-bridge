@@ -72,7 +72,7 @@ jobs:
                   section = Path('/tmp/smoke-safety.md').read_text()
                   assert '### Safety assessment' in section and 'Review score' in section, section
                   assert f'`risk:{expected}`' in section, section
-                  assert section.count('/100') == 1 and 'Change safety' not in section, section
+                  assert 'Change safety' not in section and 'safety_score' not in decision['risk'], section
                   body = (
                       'TEST ONLY: synthetic safety assessment for isolated label validation.\n'
                       f'<!-- agentbricks-reviewer-risk-sha: {head} -->\n'
